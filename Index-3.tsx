@@ -273,16 +273,108 @@ export default function FunnelCalculator() {
     setStages(stages.filter(s => s.id !== id));
   };
 
+  // === НАЛАШТУВАННЯ ЧУТЛИВОСТІ (Soft Decay) ===
+  // 0.15 означає: при рості CTR на 10%, конверсія просідає всього на 1.5%.
+  const QUALITY_SENSITIVITY = 0.15;
+
+  // Функція розрахунку з динамічним decay
+  const calculateWithDynamicDecay = (baseCtr: number, targetCtr: number, baseLeadCr: number) => {
+    // 1. Рахуємо силу змін (Growth Factor)
+    const growthFactor = baseCtr > 0 ? (targetCtr - baseCtr) / baseCtr : 0;
+    
+    // 2. Визначаємо динамічний коефіцієнт
+    let dynamicDecay = 0;
+    
+    if (growthFactor < 0) {
+      // Падіння CTR - якість не погіршується
+      dynamicDecay = 0;
+    } else if (growthFactor < 0.2) {
+      // Ріст до 20% - це оптимізація. Якість не падає.
+      dynamicDecay = 0;
+    } else if (growthFactor < 0.5) {
+      // Ріст 20-50% - незначне розмивання
+      dynamicDecay = 0.1;
+    } else {
+      // Ріст >50% - вмикаємо м'яку похибку
+      dynamicDecay = QUALITY_SENSITIVITY;
+    }
+    
+    // 3. Рахуємо нову конверсію
+    const correction = 1 - (growthFactor * dynamicDecay);
+    const newLeadCr = baseLeadCr * correction;
+    
+    return {
+      newLeadCr: Math.max(newLeadCr, 0.01),
+      growthFactor,
+      dynamicDecay,
+      correction
+    };
+  };
+
+  // Функція статусу для дашборду
+  const getDashboardStatus = (growthFactor: number, correction: number, leadsGain: number) => {
+    const growthPct = Math.round(growthFactor * 100);
+    const crDropPct = Math.round((1 - correction) * 100);
+    
+    if (growthFactor <= 0) {
+      return { type: 'neutral', title: '', text: '' };
+    }
+    
+    if (leadsGain > 0) {
+      if (growthFactor < 0.2) {
+        return {
+          type: 'success',
+          title: "✅ Чиста оптимізація",
+          text: `Ви покращили CTR на ${growthPct}%. Оскільки зміни незначні, ми прогнозуємо стабільну якість лідів. Ви отримаєте максимум вигоди.`
+        };
+      }
+      return {
+        type: 'info',
+        title: "📈 Ефективне масштабування",
+        text: `CTR виріс на ${growthPct}%. Конверсія може знизитись на ${crDropPct}% (природна похибка), але кількість лідів все одно виросте. Це вигідна стратегія.`
+      };
+    } else {
+      return {
+        type: 'warning',
+        title: "⚠️ Небезпечна зона",
+        text: `Увага! Ріст CTR на ${growthPct}% призведе до сильного падіння якості. Ви отримаєте багато кліків, але менше реальних лідів. Перевірте креативи.`
+      };
+    }
+  };
+
   const calculateForecast = () => {
     const forecast = [...stages];
 
-    forecast[0].newConversion = (forecast[0].conversion + forecast[0].growth) / 100;
-    forecast[0].forecast = impressions * forecast[0].newConversion;
+    // Базові значення
+    const baseCtr = stages[0].conversion / 100;
+    const baseLeadCr = (stages[1]?.conversion || 0) / 100;
+    const targetCtr = (stages[0].conversion + stages[0].growth) / 100;
+
+    // Використовуємо динамічний decay
+    const decayResult = calculateWithDynamicDecay(baseCtr, targetCtr, baseLeadCr);
+
+    // Перший етап — Кліки
+    forecast[0].newConversion = targetCtr;
+    forecast[0].forecast = impressions * targetCtr;
 
     for (let i = 1; i < forecast.length; i++) {
-      forecast[i].newConversion = (forecast[i].conversion + forecast[i].growth) / 100;
+      // Для етапу Лідів (index=1) застосовуємо скориговану конверсію
+      const rawConversion = (forecast[i].conversion + forecast[i].growth) / 100;
+      forecast[i].newConversion = i === 1 ? decayResult.newLeadCr : rawConversion;
       forecast[i].forecast = (forecast[i - 1].forecast || 0) * forecast[i].newConversion;
     }
+
+    // Зберігаємо дані для статусу
+    const baseLeads = (impressions * baseCtr) * baseLeadCr;
+    const newLeads = forecast[1]?.forecast || 0;
+    const leadsGain = newLeads - baseLeads;
+    
+    (forecast as any)._decayInfo = {
+      ...decayResult,
+      status: getDashboardStatus(decayResult.growthFactor, decayResult.correction, leadsGain),
+      leadsGain,
+      baseLeads
+    };
 
     return forecast;
   };
@@ -704,6 +796,36 @@ export default function FunnelCalculator() {
                   </div>
                 ))}
               </div>
+
+              {/* Статус прогнозу */}
+              {(() => {
+                const decayInfo = (forecastStages as any)._decayInfo;
+                if (!decayInfo || !decayInfo.status || decayInfo.status.type === 'neutral') return null;
+
+                const { status, leadsGain, baseLeads } = decayInfo;
+                const bgColors = {
+                  success: 'from-green-50 to-emerald-50 border-green-300',
+                  info: 'from-blue-50 to-indigo-50 border-blue-300',
+                  warning: 'from-orange-50 to-red-50 border-orange-300'
+                };
+
+                return (
+                  <div className={`mt-6 p-5 rounded-2xl border-2 bg-gradient-to-br ${bgColors[status.type as keyof typeof bgColors]}`}>
+                    <div className="font-bold text-lg mb-2 text-slate-800">
+                      {status.title}
+                    </div>
+                    <p className="text-sm text-slate-700 mb-3">
+                      {status.text}
+                    </p>
+                    <div className="flex items-center justify-between text-xs text-slate-600 pt-3 border-t border-slate-200">
+                      <span>Базові ліди: <strong>{Math.round(baseLeads)}</strong></span>
+                      <span className={leadsGain > 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                        {leadsGain > 0 ? '+' : ''}{Math.round(leadsGain)} лідів
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
