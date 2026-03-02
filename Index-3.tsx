@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, TrendingUp, Edit2, Check, X, Copy, Share2, FolderOpen, Save, Trash2, Download, FileText, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calculator, TrendingUp, Edit2, Check, X, Copy, Share2, FolderOpen, Save, Trash2, Download, FileText, Plus } from 'lucide-react';
 
 interface Stage {
   id: string;
@@ -66,45 +66,6 @@ const recalcConversions = (stages: Stage[], impressions: number): Stage[] => {
     return { ...s, conversion: prevValue > 0 ? Math.round((s.value / prevValue) * 10000) / 100 : 0 };
   });
 };
-
-// ── Реалістична модель "охолодження" трафіку ─────────────────────────────────
-
-/** Коефіцієнт "охолодження" якості трафіку.
- *  0.3 → при рості CTR на 10% конверсія в ліда падає на 3%. */
-const DECAY_COEFFICIENT = 0.3;
-
-/** Коефіцієнт ефективності бюджету.
- *  0.5 → CPC дешевшає, але лише наполовину від ідеалу (решту з'їдає конкуренція). */
-const CPC_EFFICIENCY = 0.5;
-
-/**
- * Повертає скориговану конверсію в ліда з урахуванням зниження якості трафіку.
- * @param baseCtr    – поточний CTR у частках (наприклад 0.0079)
- * @param targetCtr  – цільовий CTR у частках (наприклад 0.0129)
- * @param baseLeadCr – поточна конверсія в ліда у частках (наприклад 0.2142)
- */
-function getCorrectedLeadCr(baseCtr: number, targetCtr: number, baseLeadCr: number): number {
-  const growthFactor = baseCtr > 0 ? (targetCtr - baseCtr) / baseCtr : 0;
-  if (growthFactor <= 0) return baseLeadCr;                // без росту — без штрафу
-  const qualityPenalty = growthFactor * DECAY_COEFFICIENT;
-  return Math.max(baseLeadCr * (1 - qualityPenalty), 0.01);
-}
-
-/**
- * Повертає необхідний бюджет для отримання targetClicks кліків.
- * Враховує, що зростання CTR знижує CPC, але не ідеально.
- * @param baseClicks    – поточна кількість кліків
- * @param targetClicks  – цільова кількість кліків
- * @param currentBudget – поточний бюджет
- */
-function getRequiredBudget(baseClicks: number, targetClicks: number, currentBudget: number): number {
-  if (baseClicks <= 0) return currentBudget;
-  const baseCpc   = currentBudget / baseClicks;
-  const clickGrowth = (targetClicks - baseClicks) / baseClicks;
-  const newCpc    = baseCpc * (1 - (clickGrowth * CPC_EFFICIENCY * 0.5));
-  return targetClicks * newCpc;
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 const defaultData = {
   name: 'Липень ТАРГЕТ',
@@ -313,28 +274,14 @@ export default function FunnelCalculator() {
   };
 
   const calculateForecast = () => {
-    const forecast = stages.map(s => ({ ...s }));
+    const forecast = [...stages];
 
-    // ── Крок 1: базовий CTR та цільовий CTR (у частках, не %) ───────────────
-    const baseCtr   = (forecast[0].conversion) / 100;           // напр. 0.0079
-    const targetCtr = (forecast[0].conversion + forecast[0].growth) / 100; // напр. 0.0129
+    forecast[0].newConversion = (forecast[0].conversion + forecast[0].growth) / 100;
+    forecast[0].forecast = impressions * forecast[0].newConversion;
 
-    // ── Крок 2: кліки за прогнозом ──────────────────────────────────────────
-    forecast[0].newConversion = targetCtr;
-    forecast[0].forecast      = impressions * targetCtr;
-
-    // ── Крок 3: ліди — з корекцією на "охолодження" трафіку ─────────────────
-    if (forecast.length > 1) {
-      const baseLeadCr    = forecast[1].conversion / 100;       // напр. 0.2142
-      const correctedLeadCr = getCorrectedLeadCr(baseCtr, targetCtr, baseLeadCr);
-      forecast[1].newConversion = correctedLeadCr;
-      forecast[1].forecast      = (forecast[0].forecast || 0) * correctedLeadCr;
-    }
-
-    // ── Крок 4: решта етапів — без корекції (своя growth) ───────────────────
-    for (let i = 2; i < forecast.length; i++) {
+    for (let i = 1; i < forecast.length; i++) {
       forecast[i].newConversion = (forecast[i].conversion + forecast[i].growth) / 100;
-      forecast[i].forecast      = (forecast[i - 1].forecast || 0) * forecast[i].newConversion;
+      forecast[i].forecast = (forecast[i - 1].forecast || 0) * forecast[i].newConversion;
     }
 
     return forecast;
@@ -342,24 +289,13 @@ export default function FunnelCalculator() {
 
   const forecastStages = calculateForecast();
 
-  // Зберігаємо decay-скориговані значення для відображення в UI
-  const baseCtr     = stages[0].conversion / 100;
-  const targetCtr   = (stages[0].conversion + stages[0].growth) / 100;
-  const baseLeadCr  = (stages[1]?.conversion || 0) / 100;
-  const correctedLeadCr = getCorrectedLeadCr(baseCtr, targetCtr, baseLeadCr);
-  const forecastClicks  = impressions * targetCtr;
-  const realisticBudget = getRequiredBudget(stages[0].value, forecastClicks, metrics.budget);
-
   const calculateMetrics = (): { current: CalculatedMetricSet; forecast: CalculatedMetricSet } => {
     const forecastLeads        = forecastStages[1]?.forecast || 0;
     const forecastApplications = forecastStages[3]?.forecast || 0;
     const forecastPayments     = forecastStages[4]?.forecast || 0;
 
-    const currentCPM = impressions > 0 ? (metrics.budget / impressions) * 1000 : 0;
-
-    // Прогнозний бюджет — реалістичний, з урахуванням зміни CPC
-    const forecastBudget = realisticBudget > 0 ? realisticBudget : metrics.budget;
-    const forecastCPM    = forecastClicks > 0 ? (forecastBudget / impressions) * 1000 : currentCPM;
+    const currentCPM   = impressions > 0 ? (metrics.budget / impressions) * 1000 : 0;
+    const forecastBudget = metrics.budget;
 
     return {
       current: {
@@ -380,7 +316,7 @@ export default function FunnelCalculator() {
         avgCheck: metrics.avgCheck,
         revenue: forecastPayments * metrics.avgCheck,
         roas: forecastBudget > 0 ? (forecastPayments * metrics.avgCheck) / forecastBudget : 0,
-        cpm: forecastCPM
+        cpm: currentCPM
       }
     };
   };
@@ -422,7 +358,6 @@ export default function FunnelCalculator() {
   };
 
   const exportToExcel = () => {
-    // Функціонал експорту (можна реалізувати пізніше)
     alert('Експорт в Excel - в розробці');
   };
 
@@ -431,7 +366,6 @@ export default function FunnelCalculator() {
       <div className="max-w-7xl mx-auto">
         {/* Хедер */}
         <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl shadow-indigo-100/50 p-6 md:p-8 mb-6 border border-white/60">
-          {/* Заголовок фреймворку */}
           <div className="mb-6">
             <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 tracking-tight">
               MARKETING ARCHITECTURE FRAMEWORK
@@ -659,9 +593,8 @@ export default function FunnelCalculator() {
               </div>
               
               <div className="space-y-4">
-                {stages.map((stage, index) => (
+                {stages.map((stage) => (
                   <div key={stage.id} className="group bg-gradient-to-br from-slate-50 to-blue-50/50 hover:from-white hover:to-indigo-50 p-4 rounded-2xl border-2 border-slate-200/60 hover:border-indigo-300 transition-all shadow-sm hover:shadow-md">
-                    {/* Верхній рядок: назва та значення */}
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         {editingStage === stage.id ? (
@@ -704,7 +637,6 @@ export default function FunnelCalculator() {
                         )}
                       </div>
                       
-                      {/* Значення */}
                       <input
                         type="number"
                         value={stage.value || ''}
@@ -714,7 +646,6 @@ export default function FunnelCalculator() {
                       />
                     </div>
                     
-                    {/* Нижній рядок: конверсія та зміна */}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-slate-600 text-xs font-semibold block mb-1.5">Конверсія (%)</label>
@@ -772,64 +703,14 @@ export default function FunnelCalculator() {
                     </div>
                   </div>
                 ))}
-                      <div className="text-xs text-gray-600">
-                        Нова конверсія: <span className={isLeadStage ? 'font-semibold text-orange-600' : ''}>
-                      {index > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-semibold">
-                          {(stage.forecast || 0) > stage.value ? '+' : ''}{formatNumber((stage.forecast || 0) - stage.value)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                })}
               </div>
             </div>
           </div>
-
-          {/* Decay-інфо блок */}
-          {stages[0].growth !== 0 && (
-            <div className="mb-8 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
-              <h3 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
-                ⚠️ Реалістична модель: "охолодження" трафіку
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg p-3 border border-amber-100">
-                  <div className="text-gray-500 text-xs mb-1">Конверсія в ліда (базова)</div>
-                  <div className="font-bold text-gray-800 text-lg">{(baseLeadCr * 100).toFixed(2)}%</div>
-                </div>
-                <div className="bg-white rounded-lg p-3 border border-amber-100">
-                  <div className="text-gray-500 text-xs mb-1">Конверсія в ліда (скоригована)</div>
-                  <div className="font-bold text-orange-600 text-lg">{(correctedLeadCr * 100).toFixed(2)}%</div>
-                  <div className="text-xs text-red-500 mt-1">
-                    ▼ {((baseLeadCr - correctedLeadCr) * 100).toFixed(2)}% через ріст трафіку
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg p-3 border border-amber-100">
-                  <div className="text-gray-500 text-xs mb-1">Реалістичний бюджет</div>
-                  <div className="font-bold text-indigo-600 text-lg">
-                    {new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(realisticBudget)} ₴
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    {realisticBudget > metrics.budget
-                      ? `▲ +${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(realisticBudget - metrics.budget)} ₴ від поточного`
-                      : `▼ ${new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(metrics.budget - realisticBudget)} ₴ від поточного`}
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-amber-700 mt-3">
-                При рості CTR з <b>{(baseCtr * 100).toFixed(2)}%</b> до <b>{(targetCtr * 100).toFixed(2)}%</b> трафік "охолоджується":
-                нові аудиторії менш зацікавлені → конверсія в ліда падає.
-                Бюджет враховує реальну зміну CPC.
-              </p>
-            </div>
-          )}
 
           {/* Фінансові метрики */}
           <div className="border-t-2 border-slate-200/60 pt-10">
             <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-8">Фінансові показники</h2>
             
-            {/* Налаштування */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 bg-gradient-to-br from-indigo-50 to-purple-50 p-6 rounded-2xl border-2 border-indigo-100/60">
               <div>
                 <label className="text-slate-700 font-bold block mb-2 text-sm">Покази</label>
@@ -863,7 +744,6 @@ export default function FunnelCalculator() {
               </div>
             </div>
 
-            {/* Порівняльна таблиця */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-gradient-to-br from-slate-50 to-blue-50/50 p-6 rounded-2xl border-2 border-slate-200/60 shadow-sm">
                 <h3 className="font-black text-lg mb-4 text-slate-800">Поточні показники</h3>
