@@ -361,7 +361,7 @@ export default function FunnelCalculator() {
       // Для етапу Лідів (index=1) застосовуємо скориговану конверсію
       const rawConversion = (forecast[i].conversion + forecast[i].growth) / 100;
       forecast[i].newConversion = i === 1 ? decayResult.newLeadCr : rawConversion;
-      forecast[i].forecast = (forecast[i - 1].forecast || 0) * forecast[i].newConversion;
+      forecast[i].forecast = (forecast[i - 1].forecast || 0) * (forecast[i].newConversion ?? 0);
     }
 
     // Зберігаємо дані для статусу
