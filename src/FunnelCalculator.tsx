@@ -68,7 +68,7 @@ const recalcConversions = (stages: Stage[], impressions: number): Stage[] => {
 };
 
 const defaultData = {
-  name: 'Липень ТАРГЕТ',
+  name: 'Назва дашборду',
   impressions: 913505,
   stages: [
     { id: 'clicks', name: 'Кліки', value: 7200, conversion: 0.79, growth: 0.5, editable: true },
