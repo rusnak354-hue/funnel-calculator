@@ -2,10 +2,8 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}", // ВАЖЛИВО: Цей рядок каже шукати стилі в усіх файлах папки src
+    "./src/**/*.{js,ts,jsx,tsx}",
   ],
-  // ... інші налаштування
-}
   theme: {
     extend: {},
   },
