@@ -1,27 +1,12 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import FunnelCalculator from './FunnelCalculator'
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+// ВАЖЛИВО: Розкоментуйте або додайте цей рядок!
+import './index.css' 
 
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-}
-```
-
-6. **Commit** → "Create index.css"
-
----
-
-## 📋 Перевірте структуру файлів:
-
-Ваша папка `src/` має містити:
-```
-src/
-├── FunnelCalculator.tsx  ✅
-├── main.tsx              ✅
-└── index.css             ← цей файл обов'язковий!
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <FunnelCalculator />
+  </React.StrictMode>,
+)
