@@ -11,3 +11,17 @@
 body {
   font-family: system-ui, -apple-system, sans-serif;
 }
+```
+
+6. **Commit** → "Create index.css"
+
+---
+
+## 📋 Перевірте структуру файлів:
+
+Ваша папка `src/` має містити:
+```
+src/
+├── FunnelCalculator.tsx  ✅
+├── main.tsx              ✅
+└── index.css             ← цей файл обов'язковий!
