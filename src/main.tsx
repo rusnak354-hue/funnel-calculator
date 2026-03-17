@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import FunnelCalculator from './FunnelCalculator'  // ← змінено
+import FunnelCalculator from './Index.tsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
